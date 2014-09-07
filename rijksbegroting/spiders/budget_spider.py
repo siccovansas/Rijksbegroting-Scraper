@@ -1,4 +1,5 @@
 import scrapy
+from scrapy.http import Request
 from scrapy.contrib.spiders import CrawlSpider, Rule
 from scrapy.contrib.linkextractors import LinkExtractor
 from rijksbegroting.items import BudgetItem
@@ -9,35 +10,17 @@ import re
 class BudgetSpider(CrawlSpider):
     name = 'rijksbegroting'
     allowed_domains = ['rijksbegroting.nl']
+    
+    # Uncomment if you want to log.
+    #scrapy.log.start(logfile='log.txt', loglevel='ERROR', logstdout=None)
 
-    scrapy.log.start(logfile='log.txt', loglevel='DEBUG', logstdout=None)
+    # The links to the 2012, 2013 and 2014 budgets can be retrieved from this page.
+    start_urls = ['http://www.rijksbegroting.nl/2014/voorbereiding/begroting']
+    # Process the overview page of each year to retrieve the department pages.
+    rules = [Rule(LinkExtractor(allow=['/\d{4}/voorbereiding/begroting$']), 'get_budget_links')]
 
-    # 2013 URLs.
-    start_urls = ['http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173844.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173846.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173847.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173888.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173850.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173852.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173856.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173858.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173860.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst174013.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173867.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173854.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173861.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173864.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173872.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst176579.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst176600.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173870.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173871.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173874.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173875.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173878.html',
-		  'http://www.rijksbegroting.nl/2013/voorbereiding/begroting,kst173919.html',
-		 ]
-
+    # Cleans up the budget data which do not simply exist out of integers but can contain
+    # text, e.g. 'nihil' or 'pm', and are full of spaces and dots, etc.
     def clean(self, txt):
 	# Some cells are just empty, so return 0.
 	if not txt:
@@ -53,6 +36,8 @@ class BudgetSpider(CrawlSpider):
 	if txt == 'pm':
 	    return 0
 
+        # Remove dots (used as thousands separator in some budgets).
+        txt =re.sub(ur'\.', '', txt)
 	# Remove whitespaces.
 	txt = re.sub(ur'\xc2|\xa0|\s+', '', txt)
 	# Change dash into minus
@@ -63,16 +48,49 @@ class BudgetSpider(CrawlSpider):
 
 	return int(txt)
 
-    def parse(self, response):
+    # Retrieve all 20+ department pages from the budget overview page of the selected year.
+    def get_budget_links(self, response):
+        links = response.xpath("//ol/li/a[starts-with(@id, 'hoofdstuk')]/@href").extract()
+        data = []
+        for link in links:
+            yield Request(url='http://www.rijksbegroting.nl' + link, callback=self.get_budget_law)
+
+    # On each department page we need to follow the link to the law page which holds the budget data.
+    def get_budget_law(self, response):
+        link = response.xpath('//a[@class = "arrow-orange"]/@href').extract()[0]
+        yield Request(url='http://www.rijksbegroting.nl' + link, callback=self.parse_budget)
+
+    # Finally we reach the page with budget data for the current department and year.
+    def parse_budget(self, response):
+        # The year and department code and name are the same for each budget on this year.
+        year = response.xpath("//ol[@class='breadcrumb']/li[2]/a/@title").extract()[0]
+        department_info = response.xpath("//ol[@class='breadcrumb']/li[5]/a/@title").extract()[0]
+        match_obj = re.match(r'([^\s]+) (.*)', department_info)
+        department_code = match_obj.group(1)
+        department_name = match_obj.group(2)
+
+        # Read out each row which contains budget data for a specific bureau.
         rows = response.xpath("//table/tbody/tr")
 	for row in rows:
 	    firstColumnItem = row.xpath("./td[@class = 'left'][1]/p[1]/text()").extract()
 	    # If this column contains a number then we found a row with budget data!
 	    if firstColumnItem and re.match(r'\d+', firstColumnItem[0]):
 		budget = BudgetItem()
-		budget['bureau_code'] = int(firstColumnItem[0])
-		budget['bureau_name'] = row.xpath("./td[@class = 'left'][2]/p/text()").extract()[0]
+                budget['year'] = year
+                budget['department_code'] = department_code
+                budget['department_name'] = department_name
+                # Lovely exception for http://www.rijksbegroting.nl/2012/voorbereiding/begroting,kst160368.html.
+                # They forgot to split the 'Art.' and 'Omschrijving' into two columns as with every other table,
+                # and instead combined them :S.
+                if re.match(r'\d+ \w+', firstColumnItem[0]):
+                    bureau_data = firstColumnItem[0].split(' ')
+                    budget['bureau_code'] = int(bureau_data[0])
+	    	    budget['bureau_name'] = re.sub(ur'\s+', ' ', bureau_data[1])
+                else:
+        	    budget['bureau_code'] = int(firstColumnItem[0])
+	    	    bureau_name = row.xpath("./td[@class = 'left'][2]/p/text()").extract()[0]
+	    	    budget['bureau_name'] = re.sub(ur'\s+', ' ', bureau_name)
 		budget['verplichtingen'] = self.clean(row.xpath("./td[@class = 'right'][1]/p/text()").extract())
 		budget['uitgaven'] = self.clean(row.xpath("./td[@class = 'right'][2]/p/text()").extract())
 		budget['ontvangsten'] = self.clean(row.xpath("./td[@class = 'right'][3]/p/text()").extract())
-		yield budget
+                yield budget

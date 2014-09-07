@@ -10,9 +10,11 @@ import scrapy
 
 class BudgetItem(scrapy.Item):
     # define the fields for your item here like:
+    department_code = scrapy.Field()
+    department_name = scrapy.Field()
     bureau_code = scrapy.Field()
     bureau_name = scrapy.Field()
     uitgaven = scrapy.Field()
     ontvangsten = scrapy.Field()
     verplichtingen = scrapy.Field()
-
+    year = scrapy.Field()
