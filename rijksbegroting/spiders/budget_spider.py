@@ -1,4 +1,5 @@
 import scrapy
+from scrapy import log
 from scrapy.http import Request
 from scrapy.contrib.spiders import CrawlSpider, Rule
 from scrapy.contrib.linkextractors import LinkExtractor
@@ -11,8 +12,7 @@ class BudgetSpider(CrawlSpider):
     name = 'rijksbegroting'
     allowed_domains = ['rijksbegroting.nl']
     
-    # Uncomment if you want to log.
-    #scrapy.log.start(logfile='log.txt', loglevel='ERROR', logstdout=None)
+    scrapy.log.start(logfile='log.txt', loglevel='ERROR', logstdout=None)
 
     # The links to the 2012, 2013 and 2014 budgets can be retrieved from this page.
     start_urls = ['http://www.rijksbegroting.nl/2014/voorbereiding/begroting']
@@ -72,7 +72,7 @@ class BudgetSpider(CrawlSpider):
         # Read out each row which contains budget data for a specific bureau.
         rows = response.xpath("//table/tbody/tr")
 	for row in rows:
-	    firstColumnItem = row.xpath("./td[@class = 'left'][1]/p[1]/text()").extract()
+	    firstColumnItem = row.xpath("./td[1]/p[1]/text()").extract()
 	    # If this column contains a number then we found a row with budget data!
 	    if firstColumnItem and re.match(r'\d+', firstColumnItem[0]):
 		budget = BudgetItem()
@@ -82,15 +82,21 @@ class BudgetSpider(CrawlSpider):
                 # Lovely exception for http://www.rijksbegroting.nl/2012/voorbereiding/begroting,kst160368.html.
                 # They forgot to split the 'Art.' and 'Omschrijving' into two columns as with every other table,
                 # and instead combined them :S.
-                if re.match(r'\d+ \w+', firstColumnItem[0]):
-                    bureau_data = firstColumnItem[0].split(' ')
-                    budget['bureau_code'] = int(bureau_data[0])
-	    	    budget['bureau_name'] = re.sub(ur'\s+', ' ', bureau_data[1])
+                match_obj = re.match(r'(\d+)\s+(\w+.*)', firstColumnItem[0])
+                if match_obj:
+                    budget['bureau_code'] = int(match_obj.group(1))
+	    	    budget['bureau_name'] = re.sub(ur'\s+', ' ', match_obj.group(2)).strip()
+                    budget['verplichtingen'] = self.clean(row.xpath("./td[2]/p/text()").extract())
+                    budget['uitgaven'] = self.clean(row.xpath("./td[3]/p/text()").extract())
+                    budget['ontvangsten'] = self.clean(row.xpath("./td[4]/p/text()").extract())
+                    #bureau_data = firstColumnItem[0].split(' ')
+                    #budget['bureau_code'] = int(bureau_data[0])
+                    #budget['bureau_name'] = re.sub(ur'\s+', ' ', bureau_data[1])
                 else:
         	    budget['bureau_code'] = int(firstColumnItem[0])
-	    	    bureau_name = row.xpath("./td[@class = 'left'][2]/p/text()").extract()[0]
-	    	    budget['bureau_name'] = re.sub(ur'\s+', ' ', bureau_name)
-		budget['verplichtingen'] = self.clean(row.xpath("./td[@class = 'right'][1]/p/text()").extract())
-		budget['uitgaven'] = self.clean(row.xpath("./td[@class = 'right'][2]/p/text()").extract())
-		budget['ontvangsten'] = self.clean(row.xpath("./td[@class = 'right'][3]/p/text()").extract())
+	    	    bureau_name = row.xpath("./td[2]/p/text()").extract()[0]
+	    	    budget['bureau_name'] = re.sub(ur'\s+', ' ', bureau_name).strip()
+                    budget['verplichtingen'] = self.clean(row.xpath("./td[3]/p/text()").extract())
+                    budget['uitgaven'] = self.clean(row.xpath("./td[4]/p/text()").extract())
+                    budget['ontvangsten'] = self.clean(row.xpath("./td[5]/p/text()").extract())
                 yield budget
