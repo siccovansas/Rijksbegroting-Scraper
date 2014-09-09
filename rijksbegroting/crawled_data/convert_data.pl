@@ -5,6 +5,7 @@
 
 use strict;
 use warnings;
+use utf8;
 use JSON;
 use Text::CSV;
 
@@ -72,6 +73,43 @@ sub save_data {
         close $fh;
 }
 
+# Some bureau names and codes have changed over the years. This subroutine combines those bureaus again.
+# Note: this is not perfect, but works for now. The department data should be taken into account to make
+# sure that some frequently occurring names like 'Algemeen' and 'Apparaat' (with potentially the same code)
+# don't interfere.
+sub rename_bureau {
+    my ($name, $code) = @_;
+    return ('Wetgeving en controle Eerste Kamer', $code) if ($name eq 'Wetgeving en controle EK');
+    return ('Uitgaven ten behoeve van leden en oud-leden Tweede Kamer, alsmede leden van het Europees Parlement', $code) if ($name eq 'Uitgaven tbv van (oud) leden Tweede Kamer en leden EP');
+    return ('Wetgeving en controle Tweede Kamer', $code) if ($name eq 'Wetgeving/controle TK');
+    return ('Wetgeving en controle Eerste en Tweede Kamer', $code) if ($name eq 'Wetgeving/controle EK en TK');
+    return ('Kabinet van de Gouverneur van Sint Maarten', $code) if ($name eq 'Kabinet van de Gouverneur van St. Maarten');
+    return ('Kabinet van de Koning/Koningin', $code) if ($name eq 'Kabinet der Koningin' or $name eq 'Kabinet van de Koning');
+    return ('Commissie van toezicht betreffende de inlichtingen- en veiligheidsdiensten', $code) if ($name eq 'Commissie van Toezicht betreffende de Inlichtingen- en Veiligheidsdiensten');
+    return ('Eenheid van het algemeen regeringsbeleid', $code) if ($name eq 'Bevorderen van de eenheid van het algemeen regeringsbeleid');
+    return ('Veiligheid en stabiliteit', $code) if ($name eq 'Grotere veiligheid en stabiliteit, effectieve humanitaire hulpverlening en goed bestuur');
+    return ('Geheim', 9) if ($name eq 'Geheim' and $code == 5);
+    return ('Nominaal en onvoorzien', 10) if ($name eq 'Nominaal en onvoorzien' and $code == 6);
+    return ('Apparaat', 11) if ($name eq 'Apparaat' and $code == 7);
+    return ('Apparaat', $code) if ($name eq 'Algemeen' and $code == 11);
+    return ('Apparaatsuitgaven kerndepartement', $code) if ($name eq 'Apparaat kerndepartement');
+    return ('Algemene Inlichtingen- en Veiligheidsdienst', $code) if ($name eq 'Algemene Inlichtingen en Veiligheidsdienst');
+    return ('Exportkredietverzekeringen,-garanties en investeringsverzekeringen', $code) if ($name eq 'Exportkrediet- en investeringsgaranties');
+    return ('Apparaatsuitgaven Kerndepartement', $code) if ($name eq 'Apparaatuitgaven van het Kerndepartement');
+    return ('Natuur en Regio', $code) if ($name eq 'Natuur en regio');
+    return ('Een excellent ondernemingsklimaat', $code) if ($name eq 'Een excellentondernemingsklimaat');
+    return ('Langdurige zorg en ondersteuning', $code) if ($name eq 'Maatschappelijke ondersteuning en langdurige zorg');
+    return ('Beheer materiële activa', $code) if ($name eq 'Beheer materiele activa');
+    return ('Bijdragen andere begrotingen Rijk', $code) if ($name eq 'Bijdragen t.l.v. begrotingen Hoofdstuk XII');
+    return ($name, $code);
+}
+
+sub rename_department {
+    my ($name, $code) = @_;
+    return ('Economische Zaken', $code) if ($name eq 'Economische Zaken (Landbouw en innovatie)');
+    return ($name, $code)
+}
+
 ######################
 # SCRIPT
 ######################
@@ -88,14 +126,10 @@ my %data_expenses;
 
 for my $row (@data) {
     my %row = %$row;
-    #print "$row{'year'}\n";
-
-    #print "$row{department_code}_$row{department_name}\n";
-    #print "$row{bureau_code}_$row{burea_name}\n";
-    #print "$row{year}\n";
-    #print "$row{ontvangsten}\n";
-    $data_income{"$row{department_code}_$row{department_name}"}{"$row{bureau_code}_$row{bureau_name}"}{$row{year}} = [$row{ontvangsten}];
-    $data_expenses{"$row{department_code}_$row{department_name}"}{"$row{bureau_code}_$row{bureau_name}"}{$row{year}} = [$row{uitgaven}];
+    my ($bureau_name, $bureau_code) = rename_bureau($row{bureau_name}, $row{bureau_code});
+    my ($department_name, $department_code) = rename_department($row{department_name}, $row{department_code});
+    $data_income{"${department_code}_$department_name"}{"${bureau_code}_$bureau_name"}{$row{year}} = [$row{ontvangsten}];
+    $data_expenses{"${department_code}_$department_name"}{"${bureau_code}_$bureau_name"}{$row{year}} = [$row{uitgaven}];
 }
 
 my $csv_out = Text::CSV->new({
