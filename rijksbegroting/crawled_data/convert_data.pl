@@ -101,6 +101,11 @@ sub rename_bureau {
     return ('Langdurige zorg en ondersteuning', $code) if ($name eq 'Maatschappelijke ondersteuning en langdurige zorg');
     return ('Beheer materiële activa', $code) if ($name eq 'Beheer materiele activa');
     return ('Bijdragen andere begrotingen Rijk', $code) if ($name eq 'Bijdragen t.l.v. begrotingen Hoofdstuk XII');
+    return ('Taakuitvoering zeestrijdkrachten', $code) if ($name eq 'Commando zeestrijdkrachten');
+    return ('Taakuitvoering landstrijdkrachten', $code) if ($name eq 'Commando landstrijdkrachten');
+    return ('Taakuitvoering luchtstrijdkrachten', $code) if ($name eq 'Commando luchtstrijdkrachten');
+    return ('Taakuitvoering marechaussee', $code) if ($name eq 'Commando Koninklijke marechaussee');
+    return ('Ondersteuning krijgsmacht door Commando DienstenCentra', $code) if ($name eq 'Commando DienstenCentra');
     return ($name, $code);
 }
 
